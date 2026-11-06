@@ -1,0 +1,154 @@
+<Window x:Class="KlingelingFileRenamer.FindReplaceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Find and Replace"
+        Height="320" Width="520"
+        MinHeight="260" MinWidth="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False"
+        PreviewKeyDown="Window_PreviewKeyDown">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Mode: Standard / Regex -->
+        <TextBlock Grid.Row="0" Grid.Column="0"
+                   Text="Mode:"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,12" />
+        <StackPanel Grid.Row="0" Grid.Column="1"
+                    Orientation="Horizontal"
+                    Margin="0,0,0,12">
+            <RadioButton x:Name="StandardRadio"
+                         Content="Standard"
+                         IsChecked="True"
+                         VerticalAlignment="Center"
+                         Margin="0,0,16,0"
+                         Checked="ModeRadio_Checked" />
+            <RadioButton x:Name="RegexRadio"
+                         Content="Regex"
+                         VerticalAlignment="Center"
+                         ToolTip="Interpret search as a regular expression. In the replace field you can use $1, $2, ... for capture groups."
+                         Checked="ModeRadio_Checked" />
+        </StackPanel>
+
+        <!-- Search -->
+        <TextBlock Grid.Row="1" Grid.Column="0"
+                   Text="Search:"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,8" />
+        <TextBox x:Name="SearchTextBox"
+                 Grid.Row="1" Grid.Column="1"
+                 Margin="0,0,0,8"
+                 KeyDown="SearchTextBox_KeyDown" />
+
+        <!-- Replace -->
+        <TextBlock Grid.Row="2" Grid.Column="0"
+                   Text="Replace:"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,8" />
+        <TextBox x:Name="ReplaceTextBox"
+                 Grid.Row="2" Grid.Column="1"
+                 Margin="0,0,0,8"
+                 KeyDown="SearchTextBox_KeyDown" />
+
+        <!-- Saved regex patterns (only visible in Regex mode) -->
+        <Border x:Name="SavedPatternsPanel"
+                Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                Visibility="Collapsed"
+                Margin="0,4,0,8"
+                Padding="0,8,0,0"
+                BorderBrush="#CCCCCC"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Name for the pattern being saved -->
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="Name:"
+                           VerticalAlignment="Center"
+                           Margin="0,8,12,8" />
+                <TextBox x:Name="PatternNameTextBox"
+                         Grid.Row="0" Grid.Column="1"
+                         Margin="0,8,0,8"
+                         ToolTip="Name under which this regex pair is stored." />
+
+                <!-- Combo + Save / Delete -->
+                <TextBlock Grid.Row="1" Grid.Column="0"
+                           Text="Saved:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,12,0" />
+                <Grid Grid.Row="1" Grid.Column="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="SavedPatternsCombo"
+                              Grid.Column="0"
+                              DisplayMemberPath="DisplayName"
+                              SelectionChanged="SavedPatternsCombo_SelectionChanged"
+                              Margin="0,0,6,0" />
+                    <Button Grid.Column="1"
+                            Content="Save"
+                            Width="70" Margin="0,0,6,0"
+                            ToolTip="Save the current regex pair under the name above (stored in the Registry)."
+                            Click="SavePattern_Click" />
+                    <Button Grid.Column="2"
+                            Content="Delete"
+                            Width="70"
+                            ToolTip="Remove the selected pattern from the list."
+                            Click="DeletePattern_Click" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,0,0,8">
+            <Button Content="Find Next"
+                    Width="90" Margin="0,0,6,0"
+                    IsDefault="True"
+                    Click="FindNext_Click" />
+            <Button Content="Replace"
+                    Width="90" Margin="0,0,6,0"
+                    Click="ReplaceOne_Click" />
+            <Button Content="Replace All"
+                    Width="90" Margin="0,0,6,0"
+                    Click="ReplaceAll_Click" />
+            <Button Content="Close"
+                    Width="90"
+                    IsCancel="True"
+                    Click="Close_Click" />
+        </StackPanel>
+
+        <!-- Status -->
+        <TextBlock x:Name="StatusText"
+                   Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2"
+                   Foreground="DarkRed"
+                   TextWrapping="Wrap"
+                   VerticalAlignment="Center" />
+    </Grid>
+</Window>
