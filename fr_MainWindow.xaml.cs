@@ -48,7 +48,7 @@ namespace KlingelingFileRenamer
         private List<string> _originalFileNames = new List<string>();
 
         // ---------- Makro-Aufzeichnung ----------
-        // Speichert Textänderungen und Cursor-Bewegungen als Sequenz.
+        // Speichert Textaenderungen und Cursor-Bewegungen als Sequenz.
         // Beim Abspielen wird ab der aktuellen Cursorposition nachgespielt
         // (z.B. gleiche Bearbeitung eine Zeile tiefer).
         private bool _isRecordingMacro;
@@ -70,7 +70,7 @@ namespace KlingelingFileRenamer
             public int RelativeOffset { get; }
             public int RemovalLength { get; }
             public string InsertedText { get; }
-            // CaretMove: relative Bewegung in Zeilen/Spalten (Down/Up/Left/Right, …)
+            // CaretMove: relative Bewegung in Zeilen/Spalten (Down/Up/Left/Right, ...)
             public int LineDelta { get; }
             public int ColumnDelta { get; }
 
@@ -100,7 +100,7 @@ namespace KlingelingFileRenamer
         {
             InitializeComponent();
 
-            // Rechteck-Paste auch über Rechtsklick ? Einfügen und andere Wege abfangen
+            // Rechteck-Paste auch ueber Rechtsklick -> Einfuegen und andere Wege abfangen
             DataObject.AddPastingHandler(EditorBox, OnPasting);
 
             colorizer = new NewTextColorizer(EditorBox.Document);
@@ -244,6 +244,11 @@ namespace KlingelingFileRenamer
             if (e.Key != Key.Insert)
                 return;
 
+            // Shift+Einfg (Einfuegen) und Strg+Einfg (Kopieren) nicht abfangen,
+            // die gehoeren den Paste/Copy-Kommandos von AvalonEdit.
+            if (Keyboard.Modifiers != ModifierKeys.None)
+                return;
+
             EditorBox.TextArea.OverstrikeMode = !EditorBox.TextArea.OverstrikeMode;
             e.Handled = true;
         }
@@ -256,6 +261,9 @@ namespace KlingelingFileRenamer
         private void EditorBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+
+          //  bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
 
             // Enter wuerde immer eine neue Zeile erzeugen -> komplett blockieren.
             if (e.Key == Key.Enter || e.Key == Key.Return)
@@ -278,19 +286,22 @@ namespace KlingelingFileRenamer
             // Rechteckbloecke aus anderen Editoren (dort nur Klartext mit
             // Zeilenumbruechen, ohne AvalonEdit-Format).
             // Document_Changed bleibt das Sicherheitsnetz.
-            if (ctrl && e.Key == Key.V)
+            if ((ctrl && e.Key == Key.V) || (shift && e.Key == Key.Insert))
             {
                 bool isBlock = IsBlockSelection();
                 bool clipboardIsBlockData = ClipboardContainsRectangularData();
                 string clipboardText = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
                 bool hasNewlines = clipboardText.IndexOf('\n') >= 0 || clipboardText.IndexOf('\r') >= 0;
 
-                // 1. AvalonEdit-eigenes Rechteck-Format oder aktive Blockselektion ? normal durchlassen
+                // 1. AvalonEdit-eigenes Rechteck-Format oder aktive Blockselektion -> normal durchlassen
                 if (clipboardIsBlockData || isBlock)
+                {
+                    PasteForShiftInsert(e);
                     return;
+                }
 
-                // 2. Mehrzeiliger Text aus fremdem Editor (UltraEdit, Notepad++ …)
-                //    ? versuchen, als Rechteck einzufügen
+                // 2. Mehrzeiliger Text aus fremdem Editor (UltraEdit, Notepad++ ...)
+                //    -> versuchen, als Rechteck einzufuegen
                 if (hasNewlines)
                 {
                     if (TryPasteAsRectangle())
@@ -299,19 +310,23 @@ namespace KlingelingFileRenamer
                         return;
                     }
 
-                    // Konnte nicht als Rechteck eingefügt werden ? blockieren
-                    // (sonst würde die Zeilenanzahl steigen)
+                    // Konnte nicht als Rechteck eingefuegt werden -> blockieren
+                    // (sonst wuerde die Zeilenanzahl steigen)
                     e.Handled = true;
                     return;
                 }
 
-                // 3. Einzeiliger Text – normale Prüfungen
+                // 3. Einzeiliger Text - normale Pruefungen
                 bool wouldEmptyLine = SelectionWouldEmptyLine() && clipboardText.Length == 0;
                 bool spansMultipleLines = SelectionSpansMultipleLines();
 
                 if (spansMultipleLines || wouldEmptyLine)
+                {
                     e.Handled = true;
+                    return;
+                }
 
+                PasteForShiftInsert(e);
                 return;
             }
 //                bool isBlock = IsBlockSelection();
@@ -330,11 +345,11 @@ namespace KlingelingFileRenamer
 //                return;
 //            }
 
-            // Ausschneiden (Strg+X): blockieren, wenn die Selektion mehrere
+            // Ausschneiden (Strg+X bzw. Shift+Entf): blockieren, wenn die Selektion mehrere
             // Zeilen umfasst (wuerde eine oder mehrere Zeilen entfernen)
             // oder eine Zeile dadurch komplett leer wuerde. Bei Blockselektion
             // nicht relevant (siehe oben).
-            if (ctrl && e.Key == Key.X)
+            if ((ctrl && e.Key == Key.X) || (shift && e.Key == Key.Delete && EditorBox.SelectionLength > 0))
             {
                 if (!IsBlockSelection() && (SelectionSpansMultipleLines() || SelectionWouldEmptyLine()))
                     e.Handled = true;
@@ -368,6 +383,19 @@ namespace KlingelingFileRenamer
                     e.Handled = true;
                 }
             }
+        }
+
+        // Shift+Einfg: AvalonEdit wertet diese Tastenkombination nicht zuverlaessig
+        // als Paste aus (Strg+V hat dort eine explizite Bindung, Shift+Einfg
+        // nicht). Deshalb wird das Paste-Kommando hier selbst ausgeloest, nachdem
+        // die Schutzpruefungen bestanden wurden. Strg+V bleibt AvalonEdit ueberlassen.
+        private void PasteForShiftInsert(KeyEventArgs e)
+        {
+            if (e.Key != Key.Insert)
+                return;
+
+            ApplicationCommands.Paste.Execute(null, EditorBox.TextArea);
+            e.Handled = true;
         }
 
         // Faengt normale Texteingabe ab: verhindert eingefuegte Zeilenumbrueche
@@ -1203,7 +1231,7 @@ namespace KlingelingFileRenamer
             int lineDelta = newLine.LineNumber - oldLine.LineNumber;
             int columnDelta = newColumn - oldColumn;
 
-            // Reine Cursorbewegung (Pfeiltasten, Home/End, Klick, …) speichern.
+            // Reine Cursorbewegung (Pfeiltasten, Home/End, Klick, ...) speichern.
             if (lineDelta != 0 || columnDelta != 0)
                 _recordedMacro.Add(MacroOperation.CaretMove(lineDelta, columnDelta));
 
@@ -1247,7 +1275,7 @@ namespace KlingelingFileRenamer
         {
             if (_isRecordingMacro)
             {
-                MessageBox.Show("Recording still active – stop it first (Alt+K).",
+                MessageBox.Show("Recording still active - stop it first (Alt+K).",
                     "Klingeling File Renamer", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -1351,7 +1379,7 @@ namespace KlingelingFileRenamer
             if (string.IsNullOrEmpty(text))
                 return false;
 
-            // Kein Zeilenumbruch ? kein Rechteck nötig
+            // Kein Zeilenumbruch -> kein Rechteck noetig
             if (text.IndexOf('\n') < 0 && text.IndexOf('\r') < 0)
                 return false;
 
@@ -1380,14 +1408,14 @@ namespace KlingelingFileRenamer
             if (!hasNewlines)
                 return;
 
-            // Mehrzeiliger Text ? versuchen, als Rechteck einzufügen und normales Einfügen abbrechen
+            // Mehrzeiliger Text -> versuchen, als Rechteck einzufuegen und normales Einfuegen abbrechen
             if (TryPasteAsRectangle())
             {
                 e.CancelCommand();
             }
             else
             {
-                // Nicht als Rechteck möglich ? abbrechen, damit keine Zeilen hinzukommen
+                // Nicht als Rechteck moeglich -> abbrechen, damit keine Zeilen hinzukommen
                 e.CancelCommand();
             }
         }
