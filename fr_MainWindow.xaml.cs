@@ -17,40 +17,39 @@ namespace KlingelingFileRenamer
 {
     public partial class MainWindow : Window
     {
-        // Registry-Pfad, unter dem der zuletzt gewaehlte Ordner gespeichert wird
+        // Registry path under which the last selected folder is stored
         private const string RegistryKeyPath = @"Software\Klingeling\FileRenamer";
         private const string RegistryValueName = "LastPath";
 
-        // Waehrend des Wiederherstellens beim Start soll nicht gleichzeitig
-        // wieder in die Registry geschrieben werden.
+        // While restoring the path at startup, do not write back to the registry
+        // at the same time.
         private bool _isRestoringPath;
 
-        // Als Klassenfeld deklariert, damit Document_Changed (und ggf.
-        // spaeter der Speichern-Code) ebenfalls darauf zugreifen kann.
+        // Declared as a class field so that Document_Changed (and possibly the
+        // save code later on) can access it as well.
         private NewTextColorizer colorizer;
 
-        // Wenn true, wird der Colorizer bei Document_Changed ignoriert
-        // (z.B. waehrend EditorBox.Text programmatisch gesetzt wird).
+        // If true, the colorizer is ignored in Document_Changed (e.g. while
+        // EditorBox.Text is being set programmatically).
         private bool _suppressColorizing;
 
-        // Zustand der betroffenen Zeile VOR der Aenderung (in Document_Changing
-        // erfasst), damit Document_Changed pruefen kann, ob die Aenderung
-        // gegen die Invarianten (Zeilenanzahl, keine leeren Zeilen) verstoesst.
+        // State of the affected line BEFORE the change (captured in Document_Changing)
+        // so that Document_Changed can check whether the change violates the
+        // invariants (line count, no empty lines).
         private int _lineCountBeforeChange;
         private int _lineLengthBeforeChange;
 
-        // Verzeichnis, dessen Dateien aktuell im Editor angezeigt werden,
-        // und die Original-Dateinamen in der Reihenfolge der Editor-Zeilen.
-        // Wird beim Anzeigen eines Verzeichnisses gesetzt und von
-        // "Apply changes" benutzt, um zu wissen, welche Datei zu welcher
-        // (ggf. editierten) Zeile gehoert.
+        // Directory whose files are currently shown in the editor, and the original
+        // file names in the order of the editor lines. Set when a directory is
+        // displayed and used by "Apply changes" to know which file belongs to
+        // which (possibly edited) line.
         private string? _currentDirectory;
         private List<string> _originalFileNames = new List<string>();
 
-        // ---------- Makro-Aufzeichnung ----------
-        // Speichert Textaenderungen und Cursor-Bewegungen als Sequenz.
-        // Beim Abspielen wird ab der aktuellen Cursorposition nachgespielt
-        // (z.B. gleiche Bearbeitung eine Zeile tiefer).
+        // ---------- Macro recording ----------
+        // Stores text changes and caret movements as a sequence.
+        // On playback it is replayed from the current caret position
+        // (e.g. the same edit one line further down).
         private bool _isRecordingMacro;
         private int _macroLastCaretOffset;
         private int _macroCaretBeforeChange;
@@ -66,11 +65,11 @@ namespace KlingelingFileRenamer
         private readonly struct MacroOperation
         {
             public MacroOpKind Kind { get; }
-            // TextEdit: Offset relativ zur Cursorposition vor der Aenderung
+            // TextEdit: offset relative to the caret position before the change
             public int RelativeOffset { get; }
             public int RemovalLength { get; }
             public string InsertedText { get; }
-            // CaretMove: relative Bewegung in Zeilen/Spalten (Down/Up/Left/Right, ...)
+            // CaretMove: relative movement in lines/columns (Down/Up/Left/Right, ...)
             public int LineDelta { get; }
             public int ColumnDelta { get; }
 
@@ -100,7 +99,7 @@ namespace KlingelingFileRenamer
         {
             InitializeComponent();
 
-            // Rechteck-Paste auch ueber Rechtsklick -> Einfuegen und andere Wege abfangen
+            // Also catch rectangular paste via right-click -> Paste and other routes
             DataObject.AddPastingHandler(EditorBox, OnPasting);
 
             colorizer = new NewTextColorizer(EditorBox.Document);
@@ -108,30 +107,30 @@ namespace KlingelingFileRenamer
             EditorBox.Document.Changing += Document_Changing;
             EditorBox.Document.Changed += Document_Changed;
 
-            // Fertige Suchen/Ersetzen-Leiste von AvalonEdit einklinken.
-            // Danach oeffnet Strg+F automatisch die Suchleiste im Editor.
+            // Hook in AvalonEdit's built-in find panel.
+            // After that, Ctrl+F opens the search bar in the editor automatically.
             SearchPanel.Install(EditorBox);
 
-            // Verhindert, dass sich die Anzahl der Zeilen im Editor durch
-            // Tippen, Loeschen, Einfuegen oder Ausschneiden veraendert.
+            // Prevents the number of lines in the editor from changing through
+            // typing, deleting, pasting or cutting.
             EditorBox.PreviewKeyDown += EditorBox_PreviewKeyDown;
             EditorBox.TextArea.PreviewTextInput += EditorBox_PreviewTextInput;
 
-            // Cursor-Bewegungen fuer die Makro-Aufzeichnung mitschneiden.
+            // Record caret movements for macro recording.
             EditorBox.TextArea.Caret.PositionChanged += MacroCaret_PositionChanged;
 
-            // Einfg: Umschalten zwischen Einfuege- und Ueberschreibmodus.
+            // Insert key: toggle between insert and overwrite mode.
             EditorBox.TextArea.PreviewKeyDown += EditorBox_OverstrikeToggle_PreviewKeyDown;
 
             LoadDrives();
 
-            // Erst nachdem das Fenster fertig geladen ist (Baum ist dann im
-            // visuellen Baum), den zuletzt gewaehlten Pfad wiederherstellen.
+            // Restore the last selected path only once the window has finished loading
+            // (the tree is then part of the visual tree).
             Loaded += (s, e) => RestoreLastPath();
         }
 
-        // Erfasst VOR jeder Aenderung den Zustand der betroffenen Zeile,
-        // damit Document_Changed das Ergebnis bewerten kann.
+        // Captures the state of the affected line BEFORE every change so that
+        // Document_Changed can evaluate the result.
         private void Document_Changing(object? sender, DocumentChangeEventArgs e)
         {
             var document = EditorBox.Document;
@@ -140,35 +139,33 @@ namespace KlingelingFileRenamer
             int offset = Math.Min(e.Offset, document.TextLength);
             _lineLengthBeforeChange = document.GetLineByOffset(offset).Length;
 
-            // Fuer Makro: Cursorposition vor der Textaenderung merken.
+            // For macro: remember the caret position before the text change.
             if (_isRecordingMacro)
                 _macroCaretBeforeChange = EditorBox.CaretOffset;
         }
 
-        private void Document_Changed(object? sender, DocumentChangeEventArgs e)  // Methode
+        private void Document_Changed(object? sender, DocumentChangeEventArgs e)  // method
         {
             if (_suppressColorizing)
                 return;
 
             var document = EditorBox.Document;
 
-            // Offset-Bereich, der von der Aenderung betroffen ist. Bei reinem
-            // Loeschen ist InsertionLength 0 - dann ist Start == Ende, das
-            // reicht aber, um ueber GetLineByOffset die (ggf. zusammen-
-            // gefuehrte) Zeile zu finden.
+            // Offset range affected by the change. For a pure deletion InsertionLength
+            // is 0, so start == end; that is still enough to find the (possibly merged)
+            // line via GetLineByOffset.
             int start = Math.Min(e.Offset, document.TextLength);
             int end = Math.Min(e.Offset + e.InsertionLength, document.TextLength);
 
             var startLine = document.GetLineByOffset(start);
             var endLine = document.GetLineByOffset(end);
 
-            // ---------- Invarianten pruefen ----------
-            // Diese Pruefung greift NACH der Aenderung und damit unabhaengig
-            // vom Eingabeweg (Tastatur, Kontextmenue "Einfuegen", Drag&Drop,
-            // eigene Suchen/Ersetzen-Funktion, ...). Die PreviewKeyDown-
-            // Pruefungen verhindern die haeufigsten Faelle schon vorher
-            // (kein Flackern), diese Pruefung ist das zuverlaessige Netz
-            // fuer alle uebrigen Faelle.
+            // ---------- Check invariants ----------
+            // This check runs AFTER the change and is therefore independent of the
+            // input route (keyboard, context menu "Paste", drag & drop, our own
+            // find/replace function, ...). The PreviewKeyDown checks prevent the most
+            // common cases beforehand (no flicker); this check is the reliable safety
+            // net for all remaining cases.
             bool lineCountChanged = document.LineCount != _lineCountBeforeChange;
             bool lineBecameEmpty = startLine == endLine
                 && _lineLengthBeforeChange > 0
@@ -176,10 +173,9 @@ namespace KlingelingFileRenamer
 
             if (lineCountChanged || lineBecameEmpty)
             {
-                // Ungueltige Aenderung rueckgaengig machen. Erst nach dem
-                // aktuellen Changed-Aufruf ausfuehren (Dispatcher.BeginInvoke),
-                // damit UndoStack.Undo() nicht verschachtelt in dieses Event
-                // hineinruft.
+                // Undo the invalid change. Run it only after the current Changed call
+                // (Dispatcher.BeginInvoke) so that UndoStack.Undo() is not called nested
+                // inside this event.
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     _suppressColorizing = true;
@@ -195,8 +191,7 @@ namespace KlingelingFileRenamer
                 return;
             }
 
-            // Ganze Zeile(n) als geaendert markieren, nicht nur den
-            // exakten Aenderungsbereich.
+            // Mark the whole line(s) as changed, not just the exact changed range.
             colorizer.NewSegments.Add(new TextSegment
             {
                 StartOffset = startLine.Offset,
@@ -205,11 +200,11 @@ namespace KlingelingFileRenamer
 
             EditorBox.TextArea.TextView.Redraw();
 
-            // Nur gueltige Aenderungen aufzeichnen (die obige Undo-Behandlung
-            // ist bereits per "return" oben ausgeschlossen).
+            // Record only valid changes (invalid ones are already excluded by the
+            // "return" in the undo handling above).
             if (_isRecordingMacro)
             {
-                // Caret-Events durch diese Textaenderung nicht als Navigation speichern.
+                // Do not store caret events caused by this text change as navigation.
                 _macroIgnoreCaretChange = true;
                 string insertedText = e.InsertedText?.Text ?? string.Empty;
                 _recordedMacro.Add(MacroOperation.TextEdit(
@@ -221,8 +216,8 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Setzt EditorBox.Text programmatisch, ohne dass der Colorizer das
-        // Ergebnis komplett blau markiert.
+        // Sets EditorBox.Text programmatically without the colorizer marking the
+        // whole result blue.
         private void SetEditorTextWithoutColorizing(string text)
         {
             _suppressColorizing = true;
@@ -238,14 +233,14 @@ namespace KlingelingFileRenamer
             EditorBox.TextArea.TextView.Redraw();
         }
 
-        // Einfg-Taste: Einfuegen <-> Ueberschreiben (OverstrikeMode).
+        // Insert key: insert <-> overwrite (OverstrikeMode).
         private void EditorBox_OverstrikeToggle_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key != Key.Insert)
                 return;
 
-            // Shift+Einfg (Einfuegen) und Strg+Einfg (Kopieren) nicht abfangen,
-            // die gehoeren den Paste/Copy-Kommandos von AvalonEdit.
+            // Do not intercept Shift+Insert (paste) and Ctrl+Insert (copy); they belong
+            // to AvalonEdit's Paste/Copy commands.
             if (Keyboard.Modifiers != ModifierKeys.None)
                 return;
 
@@ -253,10 +248,10 @@ namespace KlingelingFileRenamer
             e.Handled = true;
         }
 
-        // ---------- Schutz: Zeilenanzahl darf sich nicht veraendern ----------
-        // Greift nur bei interaktiver Bedienung (Tastatur/Zwischenablage).
-        // Programmatisches Setzen von EditorBox.Text (z.B. beim Wechsel des
-        // ausgewaehlten Ordners) ist davon bewusst NICHT betroffen.
+        // ---------- Protection: the line count must not change ----------
+        // Only applies to interactive use (keyboard/clipboard).
+        // Programmatically setting EditorBox.Text (e.g. when the selected folder
+        // changes) is deliberately NOT affected.
 
         private void EditorBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
@@ -265,27 +260,26 @@ namespace KlingelingFileRenamer
 
           //  bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
 
-            // Enter wuerde immer eine neue Zeile erzeugen -> komplett blockieren.
+            // Enter would always create a new line -> block it completely.
             if (e.Key == Key.Enter || e.Key == Key.Return)
             {
                 e.Handled = true;
                 return;
             }
 
-            // Einfuegen (Strg+V): blockieren, wenn der Zwischenablagetext
-            // einen Zeilenumbruch enthaelt (wuerde Zeilen hinzufuegen), die
-            // Selektion mehrere Zeilen umfasst (wuerde Zeilen entfernen),
-            // oder eine ganze Zeile durch leeren Zwischenablageinhalt leer
-            // werden wuerde.
+            // Paste (Ctrl+V): block if the clipboard text contains a line break (would
+            // add lines), if the selection spans several lines (would remove lines),
+            // or if a whole line would become empty because the clipboard content is
+            // empty.
             //
-            // Ausnahme Rechteck-/Blockselektion:
-            // - AvalonEdit-eigenes Blockformat in der Zwischenablage, ODER
-            // - aktive Blockselektion (Alt+Maus) im Editor
-            // In beiden Faellen fuegt AvalonEdit spaltenweise in bestehende
-            // Zeilen ein und erzeugt keine neuen Zeilen. Das gilt auch fuer
-            // Rechteckbloecke aus anderen Editoren (dort nur Klartext mit
-            // Zeilenumbruechen, ohne AvalonEdit-Format).
-            // Document_Changed bleibt das Sicherheitsnetz.
+            // Exception: rectangular/block selection:
+            // - AvalonEdit's own block format on the clipboard, OR
+            // - an active block selection (Alt+mouse) in the editor
+            // In both cases AvalonEdit inserts column-wise into existing lines and
+            // creates no new lines. This also applies to rectangular blocks from other
+            // editors (plain text with line breaks only, without the AvalonEdit
+            // format).
+            // Document_Changed remains the safety net.
             if ((ctrl && e.Key == Key.V) || (shift && e.Key == Key.Insert))
             {
                 bool isBlock = IsBlockSelection();
@@ -293,30 +287,30 @@ namespace KlingelingFileRenamer
                 string clipboardText = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
                 bool hasNewlines = clipboardText.IndexOf('\n') >= 0 || clipboardText.IndexOf('\r') >= 0;
 
-                // 1. AvalonEdit-eigenes Rechteck-Format oder aktive Blockselektion -> normal durchlassen
+                // 1. AvalonEdit's own rectangle format or an active block selection -> let it through normally
                 if (clipboardIsBlockData || isBlock)
                 {
                     PasteForShiftInsert(e);
                     return;
                 }
 
-                // 2. Mehrzeiliger Text aus fremdem Editor (UltraEdit, Notepad++ ...)
-                //    -> versuchen, als Rechteck einzufuegen
+                // 2. Multi-line text from a foreign editor (UltraEdit, Notepad++ ...)
+                //    -> try to insert it as a rectangle
                 if (hasNewlines)
                 {
                     if (TryPasteAsRectangle())
                     {
-                        e.Handled = true;   // wir haben es selbst erledigt
+                        e.Handled = true;   // we handled it ourselves
                         return;
                     }
 
-                    // Konnte nicht als Rechteck eingefuegt werden -> blockieren
-                    // (sonst wuerde die Zeilenanzahl steigen)
+                    // Could not be inserted as a rectangle -> block it
+                    // (otherwise the line count would increase)
                     e.Handled = true;
                     return;
                 }
 
-                // 3. Einzeiliger Text - normale Pruefungen
+                // 3. Single-line text - normal checks
                 bool wouldEmptyLine = SelectionWouldEmptyLine() && clipboardText.Length == 0;
                 bool spansMultipleLines = SelectionSpansMultipleLines();
 
@@ -333,8 +327,8 @@ namespace KlingelingFileRenamer
 //                bool clipboardIsBlockData = ClipboardContainsRectangularData();
 //                string clipboardText = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
 //                bool hasNewlines = clipboardText.IndexOf('\n') >= 0 || clipboardText.IndexOf('\r') >= 0;
-//                // Mehrzeiliger Text ist ok, wenn Ziel eine Blockselektion ist
-//                // oder die Zwischenablage AvalonEdit-Blockdaten enthaelt.
+//                // Multi-line text is fine if the target is a block selection
+//                // or the clipboard contains AvalonEdit block data.
 //                bool pasteAddsLines = hasNewlines && !clipboardIsBlockData && !isBlock;
 //                bool wouldEmptyLine = !isBlock && SelectionWouldEmptyLine() && clipboardText.Length == 0;
 //                bool spansMultipleLines = !isBlock && SelectionSpansMultipleLines();
@@ -345,10 +339,9 @@ namespace KlingelingFileRenamer
 //                return;
 //            }
 
-            // Ausschneiden (Strg+X bzw. Shift+Entf): blockieren, wenn die Selektion mehrere
-            // Zeilen umfasst (wuerde eine oder mehrere Zeilen entfernen)
-            // oder eine Zeile dadurch komplett leer wuerde. Bei Blockselektion
-            // nicht relevant (siehe oben).
+            // Cut (Ctrl+X or Shift+Delete): block if the selection spans several lines
+            // (would remove one or more lines) or if a line would become completely
+            // empty as a result. Not relevant for block selection (see above).
             if ((ctrl && e.Key == Key.X) || (shift && e.Key == Key.Delete && EditorBox.SelectionLength > 0))
             {
                 if (!IsBlockSelection() && (SelectionSpansMultipleLines() || SelectionWouldEmptyLine()))
@@ -385,10 +378,10 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Shift+Einfg: AvalonEdit wertet diese Tastenkombination nicht zuverlaessig
-        // als Paste aus (Strg+V hat dort eine explizite Bindung, Shift+Einfg
-        // nicht). Deshalb wird das Paste-Kommando hier selbst ausgeloest, nachdem
-        // die Schutzpruefungen bestanden wurden. Strg+V bleibt AvalonEdit ueberlassen.
+        // Shift+Insert: AvalonEdit does not reliably treat this key combination as
+        // paste (Ctrl+V has an explicit binding there, Shift+Insert does not).
+        // Therefore the paste command is triggered here ourselves once the
+        // protection checks have passed. Ctrl+V is left to AvalonEdit.
         private void PasteForShiftInsert(KeyEventArgs e)
         {
             if (e.Key != Key.Insert)
@@ -398,11 +391,10 @@ namespace KlingelingFileRenamer
             e.Handled = true;
         }
 
-        // Faengt normale Texteingabe ab: verhindert eingefuegte Zeilenumbrueche
-        // (z.B. ueber IME), das Ueberschreiben einer mehrzeiligen Selektion,
-        // und das versehentliche Leerwerden einer Zeile bei leerem Eingabetext.
-        // Bei einer Blockselektion (Alt+Maus) wird ueblicherweise in jede
-        // betroffene Zeile derselbe Text eingefuegt - das ist erlaubt.
+        // Intercepts normal text input: prevents inserted line breaks (e.g. via IME),
+        // overwriting a multi-line selection, and accidentally emptying a line when
+        // the input text is empty. With a block selection (Alt+mouse) the same text
+        // is usually inserted into every affected line - that is allowed.
         private void EditorBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
         {
             if (e.Text.IndexOf('\n') >= 0 || e.Text.IndexOf('\r') >= 0)
@@ -421,19 +413,18 @@ namespace KlingelingFileRenamer
                 e.Handled = true;
         }
 
-        // Erkennt eine rechteckige Blockselektion (Alt+Maus). Deren Segmente
-        // enthalten pro Zeile nur eine Spalte und keine Zeilenumbrueche,
-        // daher greifen die Zeilenanzahl-/Leerzeilen-Pruefungen hier nicht.
+        // Detects a rectangular block selection (Alt+mouse). Its segments contain
+        // only one column per line and no line breaks, so the line-count/empty-line
+        // checks do not apply here.
         private bool IsBlockSelection()
         {
             return EditorBox.TextArea.Selection is RectangleSelection;
         }
 
-        // Erkennt, ob der aktuelle Zwischenablageinhalt aus dem Kopieren
-        // einer Blockselektion stammt. AvalonEdit legt dafuer zusaetzlich
-        // zum Klartext ein eigenes Datenformat ab (Name kann je nach Version
-        // leicht variieren, daher wird nur auf "Rectangular" geprueft statt
-        // auf einen exakten String).
+        // Detects whether the current clipboard content comes from copying a block
+        // selection. AvalonEdit stores its own data format in addition to the plain
+        // text (the name may vary slightly between versions, so only "Rectangular"
+        // is checked instead of an exact string).
         private bool ClipboardContainsRectangularData()
         {
             try
@@ -447,8 +438,8 @@ namespace KlingelingFileRenamer
             }
             catch (ExternalException)
             {
-                // Zwischenablage kann kurzzeitig von einem anderen Prozess
-                // gesperrt sein - dann sicherheitshalber "nein" annehmen.
+                // The clipboard may be locked briefly by another process - assume "no"
+                // to be safe.
                 return false;
             }
         }
@@ -464,8 +455,8 @@ namespace KlingelingFileRenamer
             return startLine != endLine;
         }
 
-        // Backspace am Zeilenanfang wuerde die aktuelle Zeile mit der
-        // vorherigen verschmelzen -> Zeilenanzahl wuerde sinken.
+        // Backspace at the start of a line would merge the current line with the
+        // previous one -> the line count would decrease.
         private bool CaretWouldMergeWithPreviousLine()
         {
             var document = EditorBox.Document;
@@ -474,8 +465,8 @@ namespace KlingelingFileRenamer
             return caretOffset == line.Offset && line.LineNumber > 1;
         }
 
-        // Entf am Zeilenende wuerde die naechste Zeile mit der aktuellen
-        // verschmelzen -> Zeilenanzahl wuerde sinken.
+        // Delete at the end of a line would merge the next line with the current
+        // one -> the line count would decrease.
         private bool CaretWouldMergeWithNextLine()
         {
             var document = EditorBox.Document;
@@ -485,11 +476,11 @@ namespace KlingelingFileRenamer
             return caretOffset == line.EndOffset && !isLastLine;
         }
 
-        // Prueft, ob das Entfernen der aktuellen Selektion (Backspace, Entf,
-        // Ausschneiden, oder Ueberschreiben mit leerem Text) eine Zeile auf
-        // 0 Zeichen reduzieren wuerde. Mehrzeilige Selektionen werden
-        // bereits an anderer Stelle (SelectionSpansMultipleLines) blockiert,
-        // daher hier nur die Pruefung fuer eine einzelne Zeile.
+        // Checks whether removing the current selection (Backspace, Delete, cut, or
+        // overwriting with empty text) would reduce a line to 0 characters.
+        // Multi-line selections are already blocked elsewhere
+        // (SelectionSpansMultipleLines), so only the check for a single line is
+        // done here.
         private bool SelectionWouldEmptyLine()
         {
             if (EditorBox.SelectionLength <= 0)
@@ -500,15 +491,15 @@ namespace KlingelingFileRenamer
             int selectionEnd = EditorBox.SelectionStart + EditorBox.SelectionLength;
 
             if (selectionEnd > line.EndOffset)
-                return false; // mehrzeilig, wird anderswo behandelt
+                return false; // multi-line, handled elsewhere
 
             int remaining = line.Length - EditorBox.SelectionLength;
             return remaining <= 0;
         }
 
-        // Backspace ohne Selektion: wenn die Zeile nur noch dieses eine
-        // Zeichen enthaelt (und kein Zeilenumbruch geloescht wird, das ist
-        // separat abgesichert), wuerde die Zeile dadurch leer werden.
+        // Backspace without selection: if the line contains only this one character
+        // (and no line break is deleted, which is secured separately), the line
+        // would become empty.
         private bool BackspaceWouldEmptyLine()
         {
             var document = EditorBox.Document;
@@ -517,8 +508,8 @@ namespace KlingelingFileRenamer
             return caretOffset != line.Offset && line.Length == 1;
         }
 
-        // Entf ohne Selektion: analog zu BackspaceWouldEmptyLine, nur fuer
-        // das Loeschen des Zeichens rechts vom Cursor.
+        // Delete without selection: analogous to BackspaceWouldEmptyLine, but for
+        // deleting the character to the right of the caret.
         private bool DeleteWouldEmptyLine()
         {
             var document = EditorBox.Document;
@@ -527,11 +518,11 @@ namespace KlingelingFileRenamer
             return caretOffset != line.EndOffset && line.Length == 1;
         }
 
-        // Laedt alle verfuegbaren Laufwerke als Wurzelknoten
+        // Loads all available drives as root nodes
         private void LoadDrives()
         {
-            // Baum leeren, damit LoadDrives auch beim erneuten Aufruf
-            // (z.B. bei F5/Refresh) keine doppelten Laufwerksknoten anlegt.
+            // Clear the tree so that LoadDrives does not create duplicate drive nodes
+            // when called again (e.g. on F5/refresh).
             DirectoryTree.Items.Clear();
 
             foreach (var drive in DriveInfo.GetDrives())
@@ -544,7 +535,7 @@ namespace KlingelingFileRenamer
                     Tag = drive.RootDirectory.FullName
                 };
 
-                // Dummy-Kind, damit der Expand-Pfeil erscheint (echtes Laden erst beim Aufklappen)
+                // Dummy child so that the expand arrow appears (actual loading happens on expand)
                 item.Items.Add(new TreeViewItem { Header = "..." });
                 item.Expanded += Directory_Expanded;
 
@@ -552,12 +543,12 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Wird beim Aufklappen eines Knotens aufgerufen -> laedt Unterordner nach (Lazy Loading)
+        // Called when a node is expanded -> loads subfolders on demand (lazy loading)
         private void Directory_Expanded(object sender, RoutedEventArgs e)
         {
             var item = (TreeViewItem)sender;
 
-            // Schon geladen? (kein Dummy-Kind mehr) -> nichts tun
+            // Already loaded? (no dummy child anymore) -> do nothing
             if (item.Items.Count != 1 || !(item.Items[0] is TreeViewItem dummy) || dummy.Header?.ToString() != "...")
                 return;
 
@@ -581,7 +572,7 @@ namespace KlingelingFileRenamer
             }
             catch (UnauthorizedAccessException)
             {
-                // Ordner ohne Zugriffsrechte einfach ueberspringen
+                // Simply skip folders without access rights
             }
             catch (Exception ex)
             {
@@ -589,9 +580,9 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Wird aufgerufen, wenn im Baum ein Verzeichnis ausgewaehlt wird.
-        // Die Dateien des Verzeichnisses werden als Text (eine pro Zeile) in
-        // die Editor-Box geschrieben. Der Text ist danach frei editierbar.
+        // Called when a directory is selected in the tree.
+        // The files of the directory are written to the editor box as text (one per
+        // line). The text is freely editable afterwards.
         private void DirectoryTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
             if (DirectoryTree.SelectedItem is not TreeViewItem selected)
@@ -604,8 +595,8 @@ namespace KlingelingFileRenamer
                 var files = Directory.GetFiles(path);
                 var fileNames = files.Select(f => Path.GetFileName(f) ?? string.Empty).ToList();
 
-                // Merken, welche Datei zu welcher Zeile gehoert - wird von
-                // "Apply changes" benoetigt, um Aenderungen zuzuordnen.
+                // Remember which file belongs to which line - needed by
+                // "Apply changes" to map changes to files.
                 _currentDirectory = path;
                 _originalFileNames = fileNames;
 
@@ -624,13 +615,13 @@ namespace KlingelingFileRenamer
                 MessageBox.Show($"Fehler beim Lesen von '{path}':\n{ex.Message}");
             }
 
-            // Nur speichern, wenn die Auswahl durch den Benutzer erfolgt ist,
-            // nicht waehrend wir selbst beim Start den Baum aufklappen.
+            // Save only if the selection was made by the user, not while we are
+            // expanding the tree ourselves at startup.
             if (!_isRestoringPath)
                 SaveLastPath(path);
         }
 
-        // ---------- Zuletzt gewaehlten Pfad in der Registry merken ----------
+        // ---------- Remember the last selected path in the registry ----------
 
         private void SaveLastPath(string path)
         {
@@ -641,8 +632,8 @@ namespace KlingelingFileRenamer
             }
             catch (Exception ex)
             {
-                // Registry-Zugriff kann in Ausnahmefaellen fehlschlagen (z.B.
-                // Gruppenrichtlinien) - dann speichern wir eben nicht.
+                // Registry access can fail in exceptional cases (e.g. group policies) -
+                // then we simply do not save.
                 MessageBox.Show($"Fehler beim Schreiben von '{path}' in Registry:\n{ex.Message}");
             }
         }
@@ -660,9 +651,8 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Liest den gespeicherten Pfad. Existiert er nicht mehr, wird
-        // schrittweise das naechst uebergeordnete Verzeichnis probiert,
-        // bis eines gefunden wird, das existiert (oder nichts mehr uebrig ist).
+        // Reads the saved path. If it no longer exists, the next parent directory is
+        // tried step by step until one is found that exists (or nothing is left).
         private string? FindExistingPathOrAncestor(string? path)
         {
             while (!string.IsNullOrEmpty(path))
@@ -695,14 +685,14 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Klappt den Baum Schritt fuer Schritt auf, bis der gewuenschte Pfad
-        // erreicht ist, und waehlt den entsprechenden Knoten aus.
+        // Expands the tree step by step until the desired path is reached, and
+        // selects the corresponding node.
         private void SelectPathInTree(string targetPath)
         {
             string fullPath = Path.GetFullPath(targetPath);
             string rootName = Path.GetPathRoot(fullPath) ?? string.Empty;
 
-            // Passenden Laufwerks-Knoten suchen (Tag ist der volle Root-Pfad, z.B. "C:\")
+            // Find the matching drive node (Tag is the full root path, e.g. "C:\")
             TreeViewItem? current = DirectoryTree.Items
                 .OfType<TreeViewItem>()
                 .FirstOrDefault(i => string.Equals((string)i.Tag, rootName, StringComparison.OrdinalIgnoreCase));
@@ -710,7 +700,7 @@ namespace KlingelingFileRenamer
             if (current == null)
                 return;
 
-            // Restlichen Pfad in einzelne Ordnernamen zerlegen, z.B. "Users\Max\Projekte"
+            // Split the remaining path into individual folder names, e.g. "Users\Max\Projects"
             string remainder = fullPath.Substring(rootName.Length).Trim(Path.DirectorySeparatorChar);
             var segments = remainder.Length == 0
                 ? Array.Empty<string>()
@@ -718,7 +708,7 @@ namespace KlingelingFileRenamer
 
             foreach (var segment in segments)
             {
-                // Aufklappen loest Directory_Expanded aus -> laedt die Kinder nach (Lazy Loading)
+                // Expanding triggers Directory_Expanded -> loads the children on demand (lazy loading)
                 current.IsExpanded = true;
 
                 var next = current.Items
@@ -726,7 +716,7 @@ namespace KlingelingFileRenamer
                     .FirstOrDefault(i => string.Equals(i.Header?.ToString(), segment, StringComparison.OrdinalIgnoreCase));
 
                 if (next == null)
-                    break; // Ordner z.B. inzwischen umbenannt -> auf letztem bekannten Stand bleiben
+                    break; // folder e.g. renamed in the meantime -> stay at the last known state
 
                 current = next;
             }
@@ -833,9 +823,9 @@ namespace KlingelingFileRenamer
             dialog.Status = _findReplaceStatus;
         }
 
-        // Sucht ab der aktuellen Cursorposition (case-insensitiv), springt am
-        // Ende des Texts wieder an den Anfang. Im Regex-Modus wird der
-        // Suchbegriff als regulaerer Ausdruck interpretiert.
+        // Searches from the current caret position (case-insensitive) and wraps to
+        // the start of the text when the end is reached. In regex mode the search
+        // term is interpreted as a regular expression.
         private bool FindNext(string search, bool useRegex)
         {
             if (string.IsNullOrEmpty(search))
@@ -873,7 +863,7 @@ namespace KlingelingFileRenamer
 
             int index = text.IndexOf(search, startPos, StringComparison.OrdinalIgnoreCase);
 
-            // Nicht gefunden -> von vorne bis zur urspruenglichen Position suchen
+            // Not found -> search from the beginning up to the original position
             if (index < 0)
                 index = text.IndexOf(search, 0, StringComparison.OrdinalIgnoreCase);
 
@@ -887,15 +877,15 @@ namespace KlingelingFileRenamer
             EditorBox.Focus();
             EditorBox.Select(index, search.Length);
 
-            // Sichtbar scrollen
+            // Scroll into view
             int line = EditorBox.Document.GetLineByOffset(index).LineNumber;
             EditorBox.ScrollToLine(line);
 
             return true;
         }
 
-        // Versucht, das Suchmuster als Regex zu kompilieren. Bei einem
-        // ungueltigen Muster wird eine Fehlermeldung in _findReplaceStatus gesetzt.
+        // Tries to compile the search pattern as a regex. For an invalid pattern an
+        // error message is set in _findReplaceStatus.
         private bool TryBuildRegex(string pattern, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Regex? regex)
         {
             try
@@ -914,10 +904,9 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Ersetzt die aktuell markierte Fundstelle (falls sie zum Suchbegriff
-        // passt) und springt danach zur naechsten Fundstelle. Im Regex-Modus
-        // koennen im Ersetzen-Feld $1, $2, ... auf Gruppen des Suchmusters
-        // verweisen.
+        // Replaces the currently selected match (if it matches the search term) and
+        // then jumps to the next match. In regex mode the replace field can use
+        // $1, $2, ... to refer to groups of the search pattern.
         private void ReplaceOne(string search, string replacement, bool useRegex)
         {
             if (string.IsNullOrEmpty(search))
@@ -931,8 +920,7 @@ namespace KlingelingFileRenamer
                 string selected = EditorBox.SelectedText ?? string.Empty;
                 Match match = regex.Match(selected);
 
-                // Nur ersetzen, wenn die aktuelle Selektion tatsaechlich
-                // exakt einem Treffer des Musters entspricht.
+                // Replace only if the current selection exactly matches a hit of the pattern.
                 if (match.Success && match.Index == 0 && match.Length == selected.Length)
                 {
                     int pos = EditorBox.SelectionStart;
@@ -958,17 +946,15 @@ namespace KlingelingFileRenamer
             FindNext(search, useRegex);
         }
 
-        // Ersetzt alle Vorkommen im gesamten Text. Im Regex-Modus wird das
-        // Suchmuster pro Zeile angewendet (Ersetzen-Feld kann $1, $2, ...
-        // fuer Gruppen aus dem Suchmuster verwenden) - ideal z.B. um
-        // "praefix(gruppe).ext" zeilenweise in "(gruppe)praefix.ext"
-        // umzuwandeln, unabhaengig von der Laenge des Praefix.
+        // Replaces all occurrences in the whole text. In regex mode the pattern is
+        // applied per line (the replace field can use $1, $2, ... for groups from
+        // the search pattern) - ideal e.g. to turn "prefix(group).ext" into
+        // "(group)prefix.ext" line by line, regardless of the length of the prefix.
         //
-        // Im Literal-Modus wird jede Fundstelle einzeln ueber Document.Replace
-        // ersetzt, statt den kompletten Text neu zu setzen - dadurch werden
-        // die ersetzten Zeilen (wie bei "Ersetzen") blau markiert, und die
-        // Zeilenanzahl-/Leerzeilen-Pruefungen aus Document_Changed greifen
-        // automatisch.
+        // In literal mode each match is replaced individually via Document.Replace
+        // instead of resetting the whole text - this way the replaced lines are
+        // marked blue (as with "Replace"), and the line-count/empty-line checks
+        // from Document_Changed apply automatically.
         private void ReplaceAll(string search, string replacement, bool useRegex)
         {
             if (string.IsNullOrEmpty(search))
@@ -987,9 +973,8 @@ namespace KlingelingFileRenamer
                 document.BeginUpdate();
                 try
                 {
-                    // Rueckwaerts iterieren, damit sich die Offsets der noch
-                    // nicht bearbeiteten Zeilen durch vorherige Ersetzungen
-                    // nicht verschieben.
+                    // Iterate backwards so that the offsets of the lines not yet processed are
+                    // not shifted by earlier replacements.
                     for (int lineNumber = document.LineCount; lineNumber >= 1; lineNumber--)
                     {
                         var line = document.GetLineByNumber(lineNumber);
@@ -1014,7 +999,7 @@ namespace KlingelingFileRenamer
 
             string text = EditorBox.Text;
 
-            // Erst alle Fundstellen sammeln ...
+            // First collect all matches ...
             var matchOffsets = new List<int>();
             int pos = 0;
             while (true)
@@ -1027,11 +1012,10 @@ namespace KlingelingFileRenamer
                 pos = index + search.Length;
             }
 
-            // ... und von hinten nach vorne ersetzen, damit sich die Offsets
-            // der noch nicht bearbeiteten Fundstellen nicht verschieben.
-            // BeginUpdate/EndUpdate fasst alles zu einem einzigen Undo-
-            // Schritt zusammen; Document_Changed feuert dabei trotzdem fuer
-            // jede einzelne Ersetzung.
+            // ... and replace from back to front so that the offsets of the matches not
+            // yet processed do not shift. BeginUpdate/EndUpdate combines everything
+            // into a single undo step; Document_Changed still fires for every single
+            // replacement.
             document.BeginUpdate();
             try
             {
@@ -1060,10 +1044,10 @@ namespace KlingelingFileRenamer
             OpenFindReplaceDialog();
         }
 
-        // Vergleicht die aktuellen Editor-Zeilen mit den beim Laden
-        // gemerkten Original-Dateinamen, zeigt bei Unterschieden einen
-        // Bestaetigungsdialog und benennt bei "Yes" die entsprechenden
-        // Dateien auf Dateisystemebene um. Danach wird neu geladen.
+        // Compares the current editor lines with the original file names remembered
+        // at load time, shows a confirmation dialog if there are differences and,
+        // on "Yes", renames the corresponding files on the file system.
+        // Afterwards the view is reloaded.
         private void ApplyChanges_Click(object sender, RoutedEventArgs e)
         {
             if (_currentDirectory == null)
@@ -1080,9 +1064,9 @@ namespace KlingelingFileRenamer
                 return;
             }
 
-            // Aktuelle Zeilen direkt aus dem Dokument lesen (robuster als
-            // EditorBox.Text zu splitten, unabhaengig von der genauen
-            // Zeilenumbruch-Darstellung).
+            // Read the current lines directly from the document (more robust than
+            // splitting EditorBox.Text, independent of the exact line-break
+            // representation).
             var document = EditorBox.Document;
             var currentNames = new List<string>();
             foreach (var line in document.Lines)
@@ -1097,8 +1081,8 @@ namespace KlingelingFileRenamer
                 return;
             }
 
-            // Leere/nur-Leerzeichen-Zeilen abfangen (sollte durch die
-            // Editor-Schutzmechanismen eigentlich nicht vorkommen).
+            // Catch empty/whitespace-only lines (should not actually occur thanks to
+            // the editor protection mechanisms).
             for (int i = 0; i < currentNames.Count; i++)
             {
                 if (string.IsNullOrWhiteSpace(currentNames[i]))
@@ -1110,7 +1094,7 @@ namespace KlingelingFileRenamer
                 }
             }
 
-            // Nur tatsaechlich geaenderte Zeilen sind umzubenennende Dateien.
+            // Only lines that actually changed are files to be renamed.
             var changes = new List<(string OldName, string NewName)>();
             for (int i = 0; i < _originalFileNames.Count; i++)
             {
@@ -1125,7 +1109,7 @@ namespace KlingelingFileRenamer
                 return;
             }
 
-            // Ungueltige Dateinamen vorab pruefen.
+            // Check for invalid file names up front.
             var invalidChars = Path.GetInvalidFileNameChars();
             var invalidNames = changes.Where(c => c.NewName.IndexOfAny(invalidChars) >= 0).ToList();
             if (invalidNames.Count > 0)
@@ -1136,10 +1120,9 @@ namespace KlingelingFileRenamer
                 return;
             }
 
-            // Doppelte Zielnamen erkennen (case-insensitiv, wie im
-            // Dateisystem ueblich) - betrachtet alle Zeilen, nicht nur die
-            // geaenderten, damit eine umbenannte Datei auch nicht mit einer
-            // unveraenderten kollidiert.
+            // Detect duplicate target names (case-insensitive, as usual for file
+            // systems) - considers all lines, not only the changed ones, so that a
+            // renamed file also does not collide with an unchanged one.
             var duplicates = currentNames
                 .GroupBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .Where(g => g.Count() > 1)
@@ -1155,12 +1138,12 @@ namespace KlingelingFileRenamer
                 return;
             }
 
-            // Bestaetigungsdialog mit der Liste aller Aenderungen anzeigen.
+            // Show a confirmation dialog with the list of all changes.
             var dialog = new RenameConfirmDialog(changes) { Owner = this };
             if (dialog.ShowDialog() != true)
                 return;
 
-            // Tatsaechliche Umbenennung auf Dateisystemebene.
+            // Actual renaming at file system level.
             var errors = new List<string>();
             foreach (var (oldName, newName) in changes)
             {
@@ -1173,10 +1156,9 @@ namespace KlingelingFileRenamer
 
                     if (caseOnlyChange)
                     {
-                        // File.Move scheitert bei reiner Gross-/Kleinschreibungs-
-                        // Aenderung auf einem case-insensitiven Dateisystem, da
-                        // das Ziel scheinbar schon existiert (dieselbe Datei).
-                        // Deshalb ueber einen temporaeren Namen umbenennen.
+                        // File.Move fails for a pure upper/lower-case change on a case-insensitive
+                        // file system because the target apparently already exists (same file).
+                        // Therefore rename via a temporary name.
                         string tempFullPath = oldFullPath + ".klingeling_tmp";
                         File.Move(oldFullPath, tempFullPath);
                         File.Move(tempFullPath, newFullPath);
@@ -1205,11 +1187,11 @@ namespace KlingelingFileRenamer
                     "Klingeling File Renamer", MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
-            // Abschliessender Refresh, wie gewuenscht.
+            // Final refresh, as requested.
             Refresh_Click(this, new RoutedEventArgs());
         }
 
-        // ---------- Makro-Aufzeichnung/-Wiedergabe ----------
+        // ---------- Macro recording/playback ----------
 
         private void MacroCaret_PositionChanged(object? sender, EventArgs e)
         {
@@ -1231,7 +1213,7 @@ namespace KlingelingFileRenamer
             int lineDelta = newLine.LineNumber - oldLine.LineNumber;
             int columnDelta = newColumn - oldColumn;
 
-            // Reine Cursorbewegung (Pfeiltasten, Home/End, Klick, ...) speichern.
+            // Store a pure caret movement (arrow keys, Home/End, click, ...).
             if (lineDelta != 0 || columnDelta != 0)
                 _recordedMacro.Add(MacroOperation.CaretMove(lineDelta, columnDelta));
 
@@ -1268,9 +1250,9 @@ namespace KlingelingFileRenamer
                 StartMacroRecording();
         }
 
-        // Spielt das aufgezeichnete Makro ab der aktuellen Cursorposition ab.
-        // Cursor-Bewegungen (z.B. eine Zeile nach unten) werden mit ausgefuehrt,
-        // danach die zugehoerigen Textaenderungen.
+        // Plays the recorded macro from the current caret position.
+        // Caret movements (e.g. one line down) are executed as well, followed by
+        // the associated text changes.
         private void PlayMacro_Click(object sender, RoutedEventArgs e)
         {
             if (_isRecordingMacro)
@@ -1305,7 +1287,7 @@ namespace KlingelingFileRenamer
                         int offset = Math.Clamp(caret + op.RelativeOffset, 0, document.TextLength);
                         int removalLength = Math.Clamp(op.RemovalLength, 0, document.TextLength - offset);
                         document.Replace(offset, removalLength, op.InsertedText);
-                        // Cursor analog zur normalen Eingabe hinter dem eingefuegten Text.
+                        // Caret ends up behind the inserted text, as with normal input.
                         caret = offset + (op.InsertedText?.Length ?? 0);
                     }
                 }
@@ -1319,7 +1301,7 @@ namespace KlingelingFileRenamer
             }
         }
 
-        // Bewegt den logischen Cursor um lineDelta Zeilen und columnDelta Spalten.
+        // Moves the logical caret by lineDelta lines and columnDelta columns.
         private static int ApplyCaretMove(TextDocument document, int caret, int lineDelta, int columnDelta)
         {
             caret = Math.Clamp(caret, 0, document.TextLength);
@@ -1335,9 +1317,8 @@ namespace KlingelingFileRenamer
 
         private void Refresh_Click(object sender, RoutedEventArgs e)
         {
-            // Aktuell ausgewaehlten Pfad merken, damit der Baum nach dem
-            // Neuladen wieder an derselben Stelle steht, statt auf die
-            // reine Laufwerksliste zurueckzufallen.
+            // Remember the currently selected path so that after reloading the tree is
+            // at the same place again instead of falling back to the bare drive list.
             string? currentPath = (DirectoryTree.SelectedItem as TreeViewItem)?.Tag as string;
 
             LoadDrives();
@@ -1379,13 +1360,13 @@ namespace KlingelingFileRenamer
             if (string.IsNullOrEmpty(text))
                 return false;
 
-            // Kein Zeilenumbruch -> kein Rechteck noetig
+            // No line break -> no rectangle needed
             if (text.IndexOf('\n') < 0 && text.IndexOf('\r') < 0)
                 return false;
 
             var textArea = EditorBox.TextArea;
 
-            // Nur bei leerer Auswahl (Caret) oder bereits aktiver Blockselektion
+            // Only with an empty selection (caret) or an already active block selection
             if (!textArea.Selection.IsEmpty && !(textArea.Selection is RectangleSelection))
                 return false;
 
@@ -1408,14 +1389,14 @@ namespace KlingelingFileRenamer
             if (!hasNewlines)
                 return;
 
-            // Mehrzeiliger Text -> versuchen, als Rechteck einzufuegen und normales Einfuegen abbrechen
+            // Multi-line text -> try to insert as a rectangle and cancel the normal paste
             if (TryPasteAsRectangle())
             {
                 e.CancelCommand();
             }
             else
             {
-                // Nicht als Rechteck moeglich -> abbrechen, damit keine Zeilen hinzukommen
+                // Not possible as a rectangle -> cancel so that no lines are added
                 e.CancelCommand();
             }
         }

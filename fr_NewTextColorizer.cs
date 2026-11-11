@@ -4,8 +4,8 @@ using ICSharpCode.AvalonEdit.Rendering;
 
 namespace KlingelingFileRenamer
 {
-    // Markiert neu eingefuegten Text blau, bis die Segmente explizit
-    // geleert werden (z. B. beim Speichern).
+    // Marks newly inserted text blue until the segments are explicitly
+    // cleared (e.g. when saving).
     public class NewTextColorizer : DocumentColorizingTransformer
     {
         public TextSegmentCollection<TextSegment> NewSegments { get; }
