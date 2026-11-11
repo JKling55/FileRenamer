@@ -8,7 +8,7 @@
     <RootNamespace>KlingelingFileRenamer</RootNamespace>
     <AssemblyTitle>KlingelingFileRenamer</AssemblyTitle>
     <Title>Klingeling FileRenamer</Title>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
 

@@ -4,9 +4,9 @@ using System.Windows;
 
 namespace KlingelingFileRenamer
 {
-    // Zeigt eine Liste "Alter Dateiname -> Neuer Dateiname" an und liefert
-    // ueber den Rueckgabewert von ShowDialog() (true/false) das Ergebnis von
-    // Yes/No. DialogResult = true entspricht "Yes".
+    // Shows a list "old file name -> new file name" and returns the result of
+    // Yes/No via the return value of ShowDialog() (true/false).
+    // DialogResult = true corresponds to "Yes".
     public partial class RenameConfirmDialog : Window
     {
         public RenameConfirmDialog(IEnumerable<(string OldName, string NewName)> changes)
